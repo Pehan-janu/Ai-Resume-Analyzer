@@ -44,6 +44,23 @@ npm run build
 
 ## Deployment
 
+### What is the build folder doing?
+
+When you run `npm run build`, React Router compiles your application for production and outputs a `build/` directory at the project root.
+
+Inside `build/` you will typically see:
+- `build/client/` — your static, optimized client assets (HTML, CSS, JS, images). These are what the browser downloads.
+- `build/server/` — the server bundle used by the app server to handle SSR (server-side rendering), data loading, and routing.
+
+How it’s used:
+- The `start` script (`npm start`) runs `react-router-serve` against `./build/server/index.js`, which serves the server bundle and also serves the static assets from `build/client/`.
+- This separation lets you deploy the server code and the client assets together efficiently.
+
+Notes:
+- Do not edit files in `build/` manually; they are generated artifacts and will be overwritten on the next build.
+- Ensure `build/` is ignored by version control (e.g., via `.gitignore`).
+- If you’re using Docker (as in this repo), the image build step should run `npm run build` and then use the `build/` output at runtime.
+
 ### Docker Deployment
 
 To build and run using Docker:
