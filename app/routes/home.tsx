@@ -29,11 +29,10 @@ export default function Home() {
             const resumes = (await kv.list('resume:*', true)) as KVItem[];
 
             const parsedResumes = resumes?.map((resume) => (
-                JSON.parse(resume.value) as Resume & { createdAt?: number }
+                JSON.parse(resume.value) as Resume
             ))
 
-            const sorted = (parsedResumes || []).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-            setResumes(sorted as unknown as Resume[]);
+            setResumes(parsedResumes || []);
             setLoadingResumes(false);
         }
 

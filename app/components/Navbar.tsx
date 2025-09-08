@@ -15,15 +15,5 @@ const Navbar = () => {
     );
 };
 
-// Option 2: Alternative correct syntax
-// const Navbar = (): JSX.Element => {
-//     return (
-//         <nav className="navbar">
-//             <Link to="/">
-//                 <p>RESUMIND</p>
-//             </Link>
-//         </nav>
-//     );
-// };
 
 export default Navbar;
