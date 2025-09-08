@@ -13,37 +13,34 @@ async function loadPdfJs(): Promise<any> {
     if (loadPromise) return loadPromise;
 
     isLoading = true;
-    // Dynamically import pdfjs-dist in a way that works with Vite + TS
-    loadPromise = (async () => {
-        let lib: any = null;
+    // @ts-expect-error - pdfjs-dist/build/pdf.mjs is not a module
+    loadPromise = import("pdfjs-dist/build/pdf.mjs").then((lib) => {
+        // Configure pdf.js worker for Vite/React Router in both dev and prod
+        // Prefer absolute path from public/ to avoid base path issues
+        // Resolve the worker directly from the installed pdfjs-dist to avoid version mismatches
+        // Vite will transform new URL(..., import.meta.url) into an absolute URL at runtime
+        let workerUrl: URL | string;
         try {
-            const mod: any = await import('pdfjs-dist');
-            lib = mod?.default ?? mod;
-        } catch {}
-        if (!lib || !lib.getDocument) {
+            workerUrl = new URL('pdfjs-dist/build/pdf.worker.mjs', import.meta.url);
+        } catch {
+            // As a fallback, try legacy path resolution
+            workerUrl = (typeof window !== 'undefined') ? `${window.location.origin}/node_modules/pdfjs-dist/build/pdf.worker.mjs` : 'pdf.worker.mjs';
+        }
+
+        try {
+            // Prefer explicit WorkerPort with module type for pdf.js v5 (Vite compatible)
+            const worker = new Worker(workerUrl as URL, { type: 'module' as any });
+            (lib as any).GlobalWorkerOptions.workerPort = worker as any;
+        } catch (e) {
             try {
-                // Fallback to direct path (works in many setups)
-                // @ts-ignore - path exists at runtime
-                const mod: any = await import('pdfjs-dist/build/pdf.mjs');
-                lib = mod?.default ?? mod;
+                // Fallback to workerSrc URL if Worker construction fails
+                (lib as any).GlobalWorkerOptions.workerSrc = String(workerUrl);
             } catch {}
         }
-        if (!lib || !lib.getDocument) {
-            try {
-                // Fallback to legacy build if needed
-                // @ts-ignore
-                const mod: any = await import('pdfjs-dist/legacy/build/pdf.mjs');
-                lib = mod?.default ?? mod;
-            } catch {}
-        }
-        if (!lib || !lib.getDocument) {
-            throw new Error('Unable to load pdfjs-dist library');
-        }
-        // Do not set worker here; it will be set at call-site to match the installed pdfjs version
         pdfjsLib = lib;
         isLoading = false;
         return lib;
-    })();
+    });
 
     return loadPromise;
 }
@@ -52,73 +49,63 @@ export async function convertPdfToImage(
     file: File
 ): Promise<PdfConversionResult> {
     try {
-        if (typeof window === 'undefined' || typeof document === 'undefined') {
-            return { imageUrl: '', file: null, error: 'PDF to image is only supported in the browser.' };
+        if (typeof window === 'undefined') {
+            return { imageUrl: "", file: null, error: "PDF to image requires a browser environment" };
         }
-
         const lib = await loadPdfJs();
 
         const arrayBuffer = await file.arrayBuffer();
-        // Use base URL to resolve worker in dev/prod and nested routes
-        const base: string = (import.meta as any)?.env?.BASE_URL ?? '/';
-        if (lib?.GlobalWorkerOptions) {
-            // Use the worker that ships with the installed pdfjs-dist to avoid version mismatches
-            try {
-                // @ts-ignore
-                const worker = await import('pdfjs-dist/build/pdf.worker.mjs');
-                // Some bundlers expose default URL on default export
-                const workerUrl = (worker && (worker as any).default) ? (worker as any).default : undefined;
-                if (workerUrl) {
-                    lib.GlobalWorkerOptions.workerSrc = workerUrl;
-                } else {
-                    lib.GlobalWorkerOptions.workerSrc = `${base}pdf.worker.min.mjs`;
-                }
-            } catch {
-                // Fallback to public worker if dynamic import fails
-                lib.GlobalWorkerOptions.workerSrc = `${base}pdf.worker.min.mjs`;
-            }
-        }
-
-        const loadingTask = lib.getDocument({ data: arrayBuffer });
-        const pdf = await loadingTask.promise;
+        const pdf = await lib.getDocument({ data: arrayBuffer }).promise;
         const page = await pdf.getPage(1);
 
-        const deviceScale = Math.min(3, Math.max(1, window.devicePixelRatio || 1));
-        const viewport = page.getViewport({ scale: 2 * deviceScale });
-        const canvas = document.createElement('canvas');
-        const context = canvas.getContext('2d');
-
+        const viewport = page.getViewport({ scale: 4 });
+        const canvas = document.createElement("canvas");
+        const context = canvas.getContext("2d");
         if (!context) {
-            return { imageUrl: '', file: null, error: 'Could not get 2D canvas context.' };
+            return { imageUrl: "", file: null, error: "Canvas 2D context not available" };
         }
 
-        canvas.width = Math.floor(viewport.width);
-        canvas.height = Math.floor(viewport.height);
-        context.imageSmoothingEnabled = true;
-        context.imageSmoothingQuality = 'high';
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
 
-        await page.render({ canvasContext: context, viewport }).promise;
+        if (context) {
+            context.imageSmoothingEnabled = true;
+            context.imageSmoothingQuality = "high";
+        }
+
+        await page.render({ canvasContext: context!, viewport }).promise;
 
         return new Promise((resolve) => {
             canvas.toBlob(
                 (blob) => {
                     if (blob) {
-                        const originalName = file.name.replace(/\.[^.]+$/i, '');
-                        const imageFile = new File([blob],`${originalName}.png`, { type: 'image/png' });
-                        resolve({ imageUrl: URL.createObjectURL(blob), file: imageFile });
+                        // Create a File from the blob with the same name as the pdf
+                        const originalName = file.name.replace(/\.pdf$/i, "");
+                        const imageFile = new File([blob], `${originalName}.png`, {
+                            type: "image/png",
+                        });
+
+                        resolve({
+                            imageUrl: URL.createObjectURL(blob),
+                            file: imageFile,
+                        });
                     } else {
-                        resolve({ imageUrl: '', file: null, error: 'Failed to create image blob' });
+                        resolve({
+                            imageUrl: "",
+                            file: null,
+                            error: "Failed to create image blob",
+                        });
                     }
                 },
-                'image/png',
-                0.95
-            );
+                "image/png",
+                1.0
+            ); // Set quality to maximum (1.0)
         });
     } catch (err) {
         return {
-            imageUrl: '',
+            imageUrl: "",
             file: null,
-            error: `Failed to convert PDF: ${err instanceof Error ? err.message : String(err)}`,
-    };
+            error: `Failed to convert PDF: ${err}`,
+        };
     }
 }

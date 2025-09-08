@@ -1,8 +1,8 @@
 import React from 'react';
-import { Link } from "react-router"; // Fixed import
+import { Link} from "react-router"; // Fixed import
 
 // Option 1: Correct TypeScript syntax
-const Navbar= () => {
+const Navbar = () => {
     return (
         <nav className="navbar">
             <Link to="/">
@@ -15,5 +15,15 @@ const Navbar= () => {
     );
 };
 
+// Option 2: Alternative correct syntax
+// const Navbar = (): JSX.Element => {
+//     return (
+//         <nav className="navbar">
+//             <Link to="/">
+//                 <p>RESUMIND</p>
+//             </Link>
+//         </nav>
+//     );
+// };
 
 export default Navbar;
